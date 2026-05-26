@@ -9,7 +9,7 @@ from typing import Dict, Optional, Sequence
 import torch
 import json
 import transformers
-from torch.utils.data import Dataset, random_split
+from torch.utils.data import Dataset, Subset, random_split
 from transformers import Trainer, TrainerCallback
 from safetensors.torch import load_file
 from tqdm import tqdm
@@ -54,7 +54,7 @@ class SaveBestCheckpointCallback(TrainerCallback):
             print(f"New best eval_loss={current_loss:.4f} at epoch {epoch}, saved to {best_dir}")
 
 class CustomTrainer(Trainer):
-    def compute_loss(self, model, inputs, num_items_in_batch, **kwargs):
+    def compute_loss(self, model, inputs, num_items_in_batch=None, return_outputs=False, **kwargs):
         # Extract the global step from the optimizer
         step = self.state.global_step
 
@@ -76,7 +76,7 @@ class CustomTrainer(Trainer):
         #"ce_loss": ce_loss_total, "mse_loss": mse_loss_total, "ref_ce_loss": ref_ce_loss
         if step % self.args.logging_steps == 0:
             self.log({"loss": loss.item(), "ce_loss": outputs["ce_loss"], "distill_loss": outputs["distill_loss"], "ref_ce_loss": outputs["ref_ce_loss"],})
-        return loss
+        return (loss, outputs) if return_outputs else loss
 
     def log(self, logs, start_time=None):
         if self.state.global_step is not None:
@@ -411,6 +411,14 @@ def train():
         generator = torch.Generator().manual_seed(training_args.seed)
         train_dataset, eval_dataset = random_split(full_dataset, [train_size, eval_size], generator=generator)
         print(f"Dataset split: {train_size} train, {eval_size} eval")
+
+        # Subsample training dataset if train_data_ratio is set (for debugging)
+        if 0.0 < data_args.train_data_ratio < 1.0:
+            subsample_size = max(1, int(len(train_dataset) * data_args.train_data_ratio))
+            rng = torch.Generator().manual_seed(training_args.seed)
+            indices = torch.randperm(len(train_dataset), generator=rng).tolist()[:subsample_size]
+            train_dataset = Subset(train_dataset, indices)
+            print(f"Subsampled training set: {subsample_size} samples (ratio={data_args.train_data_ratio})")
 
         data_collator = DataCollatorForSupervisedDataset(tokenizer=tokenizer)
         return dict(train_dataset=train_dataset, eval_dataset=eval_dataset, data_collator=data_collator)

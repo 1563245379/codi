@@ -1,8 +1,8 @@
 SAVE_DIR=./gpt_codi_lora
 
-mkdir -p "$SAVE_DIR"
+export HF_HOME=/workspace/cache
 
-cp scripts/train_28.20_ce_noref_new_noaux_lat6.sh "$SAVE_DIR"
+mkdir -p "$SAVE_DIR"
 
 python train.py \
 	--output_dir "$SAVE_DIR" \
@@ -41,3 +41,4 @@ python train.py \
 	--exp_data_num 2000 \
 	--remove_eos True \
 	--print_ref_model_stats True \
+	--train_data_ratio 0.0

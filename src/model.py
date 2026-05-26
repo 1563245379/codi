@@ -65,6 +65,12 @@ class DataArguments:
         },
     )
     batch_size: int = field(default=1, metadata={"help": "batch size during inference"})
+    train_data_ratio: float = field(
+        default=0.0,
+        metadata={
+            "help": "Proportion of training data to use (0.0 means use all training data). Useful for debugging."
+        },
+    )
 
 @dataclass
 class TrainingArguments(transformers.TrainingArguments):

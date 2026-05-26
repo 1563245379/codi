@@ -1,0 +1,14 @@
+{
+  "tasks": [
+    {
+      "id": "8b8b85ca",
+      "cron": "*/5 * * * *",
+      "prompt": "监控当前训练脚本，检查是否有新的checkpoint且训练是否仍在运行。具体操作：\n1. 运行 `ps aux | grep \"python.*train.py\" | grep -v grep` 检查训练进程是否存在\n2. 运行 `find /workspace/codi/gpt_codi_lora -name \"checkpoint*\" -type d | sort` 列出所有检查点\n3. 运行 `tail -80 /workspace/codi/gpt_codi_lora/train.log 2>/dev/null` 检查最新日志有无报错（CUDA OOM、RuntimeError、ValueError、Exception等关键字）\n4. 如果发现训练已停止（无进程）：检查日志末尾是否有错误。如果有错误，分析错误原因并修复代码/配置。修复后，从最新检查点恢复训练（使用 --restore_from latest 或直接指定checkpoint目录）。如果无错误，可能是正常完成，简要汇报。\n5. 如果发现训练仍在运行但有错误日志：报告具体错误信息，并暂停等待用户指示。\n6. 每次检查简要汇报：训练状态、最新检查点、日志最后几行关键信息。\n\n请用中文汇报结果。",
+      "createdAt": 1779769855649,
+      "recurring": true,
+      "createdBySessionId": "6c00625b-bd79-4603-843a-59a73584576e",
+      "createdByPid": 1533,
+      "createdByProcStart": "151630426"
+    }
+  ]
+}
