@@ -54,7 +54,7 @@ class SaveBestCheckpointCallback(TrainerCallback):
             print(f"New best eval_loss={current_loss:.4f} at epoch {epoch}, saved to {best_dir}")
 
 class CustomTrainer(Trainer):
-    def compute_loss(self, model, inputs, num_items_in_batch):
+    def compute_loss(self, model, inputs, num_items_in_batch, **kwargs):
         # Extract the global step from the optimizer
         step = self.state.global_step
 
