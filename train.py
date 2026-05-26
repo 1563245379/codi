@@ -9,8 +9,8 @@ from typing import Dict, Optional, Sequence
 import torch
 import json
 import transformers
-from torch.utils.data import Dataset
-from transformers import Trainer
+from torch.utils.data import Dataset, random_split
+from transformers import Trainer, TrainerCallback
 from safetensors.torch import load_file
 from tqdm import tqdm
 from math import ceil
@@ -30,6 +30,28 @@ IGNORE_INDEX = -100
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(device)
+
+class SaveBestCheckpointCallback(TrainerCallback):
+    def __init__(self, trainer):
+        self.trainer = trainer
+        self.best_loss = float('inf')
+
+    def on_evaluate(self, args, state, control, metrics=None, **kwargs):
+        if metrics is None:
+            return
+        current_loss = metrics.get("eval_loss")
+        if current_loss is None:
+            return
+        # After resuming from checkpoint, sync with the restored best metric
+        if self.best_loss == float('inf') and state.best_metric is not None:
+            self.best_loss = state.best_metric
+            print(f"Synced best eval_loss from checkpoint: {self.best_loss:.4f}")
+        if current_loss < self.best_loss:
+            self.best_loss = current_loss
+            best_dir = os.path.join(args.output_dir, "best_checkpoint")
+            self.trainer.save_model(output_dir=best_dir)
+            epoch = int(state.epoch) if state.epoch is not None else 0
+            print(f"New best eval_loss={current_loss:.4f} at epoch {epoch}, saved to {best_dir}")
 
 class CustomTrainer(Trainer):
     def compute_loss(self, model, inputs, num_items_in_batch):
@@ -361,7 +383,7 @@ def train():
                 ref_labels=ref_labels,
             )
 
-    def make_supervised_data_module(tokenizer, data_args) -> Dict:
+    def make_supervised_data_module(tokenizer, data_args, training_args) -> Dict:
         """Make dataset and collator for supervised fine-tuning."""
         logging.warning("Downloading Data")
         if "icot" in data_args.data_name:
@@ -369,27 +391,29 @@ def train():
                 dataset = load_dataset("zen-E/GSM8k-Aug-NL")["train"]
             else:
                 dataset = load_dataset("zen-E/GSM8k-Aug")["train"]
-            train_dataset = SupervisedDataset(data_name=data_args.data_name, raw_data=dataset, tokenizer=tokenizer, bot=model.bot_id, eot=model.eot_id)
-            data_collator = DataCollatorForSupervisedDataset(tokenizer=tokenizer)
-            return dict(train_dataset=train_dataset, eval_dataset=None, data_collator=data_collator)
+            full_dataset = SupervisedDataset(data_name=data_args.data_name, raw_data=dataset, tokenizer=tokenizer, bot=model.bot_id, eot=model.eot_id)
         elif "strategy" in data_args.data_name:
             dataset = load_dataset("zen-E/StrategyQA_CoT_GPT4o")["train"]
-            train_dataset = SupervisedDataset(data_name=data_args.data_name, raw_data=dataset, tokenizer=tokenizer, bot=model.bot_id, eot=model.eot_id)
-            data_collator = DataCollatorForSupervisedDataset(tokenizer=tokenizer)
-            return dict(train_dataset=train_dataset, eval_dataset=None, data_collator=data_collator)
+            full_dataset = SupervisedDataset(data_name=data_args.data_name, raw_data=dataset, tokenizer=tokenizer, bot=model.bot_id, eot=model.eot_id)
         elif "commonsense" in data_args.data_name:
             dataset = load_dataset("zen-E/CommonsenseQA-GPT4omini")["train"]
-            train_dataset = SupervisedDataset(data_name=data_args.data_name, raw_data=dataset, tokenizer=tokenizer, bot=model.bot_id, eot=model.eot_id)
-            data_collator = DataCollatorForSupervisedDataset(tokenizer=tokenizer)
-            return dict(train_dataset=train_dataset, eval_dataset=None, data_collator=data_collator)
+            full_dataset = SupervisedDataset(data_name=data_args.data_name, raw_data=dataset, tokenizer=tokenizer, bot=model.bot_id, eot=model.eot_id)
         elif "prontoqa" in data_args.data_name:
             with open("/home/ubuntu/coconut/data/prontoqa_train.json") as f:
                 dataset = json.load(f)
-            train_dataset = SupervisedDataset(data_name=data_args.data_name, raw_data=dataset, tokenizer=tokenizer, bot=model.bot_id, eot=model.eot_id)
-            data_collator = DataCollatorForSupervisedDataset(tokenizer=tokenizer)
-            return dict(train_dataset=train_dataset, eval_dataset=None, data_collator=data_collator)
+            full_dataset = SupervisedDataset(data_name=data_args.data_name, raw_data=dataset, tokenizer=tokenizer, bot=model.bot_id, eot=model.eot_id)
         else:
             raise NotImplementedError(f"Dataset {data_args.data_name} is not supported.")
+
+        eval_split_ratio = getattr(training_args, 'eval_split_ratio', 0.05)
+        eval_size = max(1, int(eval_split_ratio * len(full_dataset)))
+        train_size = len(full_dataset) - eval_size
+        generator = torch.Generator().manual_seed(training_args.seed)
+        train_dataset, eval_dataset = random_split(full_dataset, [train_size, eval_size], generator=generator)
+        print(f"Dataset split: {train_size} train, {eval_size} eval")
+
+        data_collator = DataCollatorForSupervisedDataset(tokenizer=tokenizer)
+        return dict(train_dataset=train_dataset, eval_dataset=eval_dataset, data_collator=data_collator)
 
     training_args.output_dir = os.path.join(
         training_args.output_dir,
@@ -400,9 +424,20 @@ def train():
         f"seed_{training_args.seed}",
     )
 
-    data_module = make_supervised_data_module(tokenizer=tokenizer, data_args=data_args)
+    data_module = make_supervised_data_module(tokenizer=tokenizer, data_args=data_args, training_args=training_args)
     trainer = CustomTrainer(model=model, tokenizer=tokenizer, args=training_args, **data_module)
-    trainer.train()
+    trainer.add_callback(SaveBestCheckpointCallback(trainer))
+
+    # Determine checkpoint for resuming
+    resume_from = None
+    if training_args.restore_from:
+        if training_args.restore_from.lower() in ("true", "latest", "auto"):
+            resume_from = True
+            print(f"Resuming from latest checkpoint in {training_args.output_dir}")
+        else:
+            resume_from = training_args.restore_from
+            print(f"Resuming from checkpoint: {resume_from}")
+    trainer.train(resume_from_checkpoint=resume_from)
 
     # to avoid the error of saving the model
     #if "llama" in model_args.model_name_or_path:

@@ -86,8 +86,14 @@ class TrainingArguments(transformers.TrainingArguments):
         default=1,
     )
     per_device_eval_batch_size: int = field(
-        default=1,
+        default=8,
     )
+    save_strategy: str = field(default="epoch")
+    eval_strategy: str = field(default="epoch")
+    load_best_model_at_end: bool = field(default=True)
+    metric_for_best_model: str = field(default="eval_loss")
+    greater_is_better: bool = field(default=False)
+    save_total_limit: int = field(default=3)
     expt_name: str = field(
         default="default",
         metadata={"help": "Experiment name"},

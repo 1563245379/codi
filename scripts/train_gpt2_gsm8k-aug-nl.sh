@@ -21,9 +21,11 @@ python train.py \
 	--max_grad_norm 2.0 \
 	--use_lora True \
 	--lora_r 128 --lora_alpha 32 --lora_init \
-	--save_strategy "no" \
+	--save_strategy "epoch" \
 	--save_safetensors False \
-	--save_total_limit 1 \
+	--save_total_limit 3 \
+	--eval_strategy "epoch" \
+	--load_best_model_at_end True \
 	--weight_decay 0.1 \
 	--warmup_ratio 0.03 \
 	--lr_scheduler_type "cosine" \
@@ -39,3 +41,8 @@ python train.py \
 	--exp_data_num 2000 \
 	--remove_eos True \
 	--print_ref_model_stats True \
+
+# Resume training from a checkpoint:
+#   --restore_from latest                    # auto-find latest checkpoint in output_dir
+#   --restore_from /path/to/checkpoint-xxx   # resume from a specific checkpoint
+#   --restore_from best_checkpoint           # load best model weights only (no optimizer state)
