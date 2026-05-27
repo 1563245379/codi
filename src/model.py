@@ -353,7 +353,7 @@ class CODI(torch.nn.Module):
                 if i == num_latent - 1: # the last latent embedding
                     # Decode the final answer in natural language
                     embds = self.get_embd(self.codi, self.model_name)(decoder_input_ids)
-                  
+                    
                     if dynamic_mask is not None: # Prevent attending the paddings
                         decoder_mask = torch.ones((embds.size(0), embds.size(1)), dtype=torch.bool).to(dynamic_mask)
                         dynamic_mask = torch.cat((encoder_attention_mask, dynamic_mask, decoder_mask), dim=1)
