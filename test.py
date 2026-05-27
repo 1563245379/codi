@@ -207,6 +207,11 @@ def evaluation(model_args, data_args, training_args):
     len_cot = []
     model.eval()
     attn_to_latent_list = []
+
+    def print_latent_norms(latent_step, latent_embd, batch_start):
+        norms = torch.linalg.vector_norm(latent_embd.squeeze(1).float(), dim=-1).detach().cpu().tolist()
+        norm_str = ", ".join(f"{batch_start + idx}:{norm:.4f}" for idx, norm in enumerate(norms))
+        print(f"latent_token_{latent_step}_norms: {norm_str}")
     
     for step, batch in enumerate(question_data):
         batch_size = batch["input_ids"].size(0)
@@ -219,6 +224,7 @@ def evaluation(model_args, data_args, training_args):
 
             if training_args.use_prj:
                 latent_embd = model.prj(latent_embd)
+            print_latent_norms(0, latent_embd, step * data_args.batch_size)
             
             inf_latent_iterations = training_args.inf_latent_iterations
             for i in range(inf_latent_iterations):
@@ -229,6 +235,7 @@ def evaluation(model_args, data_args, training_args):
                 
                 if training_args.use_prj:
                     latent_embd = model.prj(latent_embd)
+                print_latent_norms(i + 1, latent_embd, step * data_args.batch_size)
 
             if training_args.remove_eos:
                 eot_emb = model.get_embd(model.codi, model.model_name)(torch.tensor([model.eot_id], dtype=torch.long, device='cuda')).unsqueeze(0).to(device)
